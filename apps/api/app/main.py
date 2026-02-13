@@ -12,6 +12,7 @@ from app.security import get_password_hash
 
 from app.routers.auth import router as auth_router
 from app.routers.deals import router as deals_router
+from app.routers.resale import router as resale_router
 from app.routers.ideas import router as ideas_router
 
 try:
@@ -154,6 +155,7 @@ def health() -> dict:
 app.include_router(auth_router)
 app.include_router(ideas_router)
 app.include_router(deals_router)
+app.include_router(resale_router)
 
 if me_router is not None:
     app.include_router(me_router)
