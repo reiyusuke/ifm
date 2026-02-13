@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "develop", "main" ]
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [ "develop", "main" ]
 
 jobs:
   api-tests:
@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install OS dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 lsof
+
       - name: Install dependencies
         run: |
           python -m venv .venv
@@ -31,4 +36,5 @@ jobs:
       - name: Run e2e
         run: |
           . .venv/bin/activate
+          chmod +x scripts/e2e.sh
           ./scripts/e2e.sh
