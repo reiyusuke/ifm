@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "develop", "main" ]
+    branches: ["develop", "main"]
   pull_request:
-    branches: [ "develop", "main" ]
+    branches: ["develop", "main"]
 
 jobs:
   api-tests:
@@ -14,7 +14,8 @@ jobs:
         working-directory: apps/api
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,8 +31,9 @@ jobs:
         run: |
           python -m venv .venv
           . .venv/bin/activate
-          pip install -U pip
+          python -m pip install -U pip
           pip install -r requirements.txt
+          pip install pytest
 
       - name: Run e2e
         run: |
