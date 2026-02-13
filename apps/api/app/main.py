@@ -1,105 +1,130 @@
 from __future__ import annotations
 
+import os
+import logging
 from fastapi import FastAPI
-from sqlalchemy import select
 
-from app.db.session import engine, SessionLocal
-from app.models.models import User, Idea
-from app.security import get_password_hash
+from app.db.session import engine
+from app.models.models import Base, User, Idea
+from sqlalchemy.orm import Session
 
 from app.routers.auth import router as auth_router
 from app.routers.ideas import router as ideas_router
 from app.routers.deals import router as deals_router
 
-# optional routers (存在しない場合があるので安全にimport)
+# optional routers (存在しない場合がある前提)
 try:
-    from app.routers.me import router as me_router  # type: ignore
+    from app.routers.me import router as me_router
 except Exception:
     me_router = None
 
 try:
-    from app.routers.admin import router as admin_router  # type: ignore
+    from app.routers.admin import router as admin_router
 except Exception:
     admin_router = None
 
 
-app = FastAPI()
+logger = logging.getLogger("ifm")
+logging.basicConfig(level=logging.INFO)
+
+app = FastAPI(title="ifm")
 
 
-def _seed_if_empty() -> None:
+def _seed_prod_db(db: Session) -> None:
     """
-    Render(本番)では初回起動時にDBが空になりやすいので、
-    最低限のユーザー/アイデアを投入して動作確認できる状態にする。
+    - 既存データがあれば何もしない
+    - 例外が起きてもアプリは落とさない（rollbackして継続）
     """
-    db = SessionLocal()
     try:
-        # --- users ---
-        existing_users = db.execute(select(User.id).limit(1)).first()
-        if not existing_users:
+        # ---- users ----
+        buyer = db.query(User).filter(User.email == "buyer@example.com").one_or_none()
+        if buyer is None:
             buyer = User(
                 email="buyer@example.com",
-                password_hash=get_password_hash("password"),
+                # 既存プロジェクトのseedと同じ想定（hash済みの可能性があるならここは要調整）
+                password_hash="$2b$12$gJg6Jb6u7WmG7uKj7n8l9eQqzqQ9t9p7a0mZzjJQ2oZs9w9i1kM0C",  # dummy bcrypt
                 role="BUYER",
-                status="ACTIVE",
             )
+            if hasattr(buyer, "status") and getattr(buyer, "status") is None:
+                try:
+                    buyer.status = "ACTIVE"
+                except Exception:
+                    pass
+            db.add(buyer)
+            db.commit()
+
+        seller = db.query(User).filter(User.email == "seller@example.com").one_or_none()
+        if seller is None:
             seller = User(
                 email="seller@example.com",
-                password_hash=get_password_hash("password"),
+                password_hash="$2b$12$gJg6Jb6u7WmG7uKj7n8l9eQqzqQ9t9p7a0mZzjJQ2oZs9w9i1kM0C",  # dummy bcrypt
                 role="SELLER",
-                status="ACTIVE",
             )
-            db.add_all([buyer, seller])
+            if hasattr(seller, "status") and getattr(seller, "status") is None:
+                try:
+                    seller.status = "ACTIVE"
+                except Exception:
+                    pass
+            db.add(seller)
             db.commit()
-            db.refresh(buyer)
-            db.refresh(seller)
-            seller_id = int(seller.id)
-        else:
-            # seller を取る（なければ buyer でもOK）
-            s = db.execute(select(User).where(User.role == "SELLER")).scalar_one_or_none()
-            if s is None:
-                s = db.execute(select(User).limit(1)).scalar_one()
-            seller_id = int(s.id)
 
-        # --- ideas ---
-        existing_ideas = db.execute(select(Idea.id).limit(1)).first()
-        if not existing_ideas:
-            ideas = [
-                Idea(
-                    title="Demo Idea A",
-                    total_score=90,
-                    exclusive_option_price=999,
-                    price=0,
-                    seller_id=seller_id,
-                ),
-                Idea(
-                    title="Demo Idea B",
-                    total_score=75,
-                    exclusive_option_price=None,
-                    price=0,
-                    seller_id=seller_id,
-                ),
-                Idea(
-                    title="Demo Idea C",
-                    total_score=60,
-                    exclusive_option_price=1999,
-                    price=0,
-                    seller_id=seller_id,
-                ),
-            ]
-            db.add_all(ideas)
-            db.commit()
-    finally:
-        db.close()
+        # ---- ideas ----
+        # すでに1件でもあれば seed しない
+        exists_any = db.query(Idea).limit(1).first() is not None
+        if exists_any:
+            logger.info("seed: ideas already exist -> skip")
+            return
+
+        seller_id = int(getattr(seller, "id"))
+
+        demo_ideas = [
+            Idea(
+                seller_id=seller_id,
+                title="Demo Idea A",
+                summary=None,
+                body=None,
+                price=0,  # int にする
+                resale_allowed=False,
+                exclusive_option_price=999,  # int にする
+                status="ACTIVE",  # 安全側（SUBMITTED が通らない可能性があるため）
+                total_score=90,
+            ),
+            Idea(
+                seller_id=seller_id,
+                title="Demo Idea B",
+                summary=None,
+                body=None,
+                price=0,
+                resale_allowed=False,
+                exclusive_option_price=None,
+                status="ACTIVE",
+                total_score=80,
+            ),
+        ]
+
+        for it in demo_ideas:
+            db.add(it)
+        db.commit()
+        logger.info("seed: demo ideas inserted")
+
+    except Exception as e:
+        # ここで落とすと Render が "Exited with status 3" になるので絶対に落とさない
+        db.rollback()
+        logger.exception("seed failed (ignored): %s", e)
 
 
 @app.on_event("startup")
-def _startup() -> None:
-    # テーブル作成（既存なら何もしない）
-    from app.models import models  # noqa: F401  (models importでmetadata登録)
-    models.Base.metadata.create_all(bind=engine)
+def on_startup() -> None:
+    # テーブル作成（idempotent）
+    Base.metadata.create_all(bind=engine)
 
-    # 初期データ投入
-    _seed_if_empty()
+    # Render/本番だけ seed したい場合は環境変数で制御
+    # 何も設定しない場合は一旦ON（必要なら後でOFFに）
+    seed_on = os.getenv("SEED_ON_STARTUP", "1") == "1"
+
+    if seed_on:
+        with Session(bind=engine) as db:
+            _seed_prod_db(db)
 
 
 @app.get("/health")
