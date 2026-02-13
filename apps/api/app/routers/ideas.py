@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.db.session import get_db
-from app.models.models import Idea, Deal, User
+from app.models.models import Deal, Idea, User
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -18,9 +18,7 @@ def recommended(
     current_user: User = Depends(get_current_user),
 ):
     ideas = (
-        db.execute(
-            select(Idea).where(Idea.status == "SUBMITTED")
-        )
+        db.execute(select(Idea).where(Idea.status == "SUBMITTED"))
         .scalars()
         .all()
     )
@@ -42,15 +40,15 @@ def recommended(
         is_owned = deal is not None
         owned_is_exclusive = bool(deal.is_exclusive) if deal else False
 
-        # 🔥 exclusive が誰かに取られているか
+        # is_exclusive=True のDealが既に存在するか（誰かが独占取得済み）
         exclusive_taken = (
             db.query(Deal)
-            .filter(Deal.idea_id == idea.id, Deal.is_exclusive == True)  # noqa
+            .filter(Deal.idea_id == idea.id, Deal.is_exclusive == True)  # noqa: E712
             .first()
             is not None
         )
 
-        if not include_owned and is_owned:
+        if (not include_owned) and is_owned:
             continue
 
         result.append(
