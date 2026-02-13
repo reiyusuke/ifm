@@ -48,7 +48,7 @@ echo "UVICORN_PID=${UVICORN_PID}"
 echo "=== wait health ==="
 READY=0
 for _ in $(seq 1 100); do
-  if curl -sS "${API_BASE_URL}/health" >/dev/null 2>&1; then
+  if curl -sS "http://${API_HOST}:${API_PORT}/health" >/dev/null 2>&1; then
     READY=1
     break
   fi
@@ -56,12 +56,9 @@ for _ in $(seq 1 100); do
 done
 
 if [[ "${READY}" -ne 1 ]]; then
-  echo "Health check failed"
+  echo "ERROR: server not ready"
   echo "---- ${LOG_FILE} (tail) ----"
   tail -n 200 "${LOG_FILE}" || true
-  kill -TERM "${UVICORN_PID}" 2>/dev/null || true
-  sleep 0.2
-  kill -KILL "${UVICORN_PID}" 2>/dev/null || true
   exit 1
 fi
 
