@@ -124,6 +124,18 @@ def on_startup() -> None:
     # まずテーブル作成
     Base.metadata.create_all(bind=engine)
 
+    # --- DB constraint: only one exclusive deal per idea ---
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_deals_exclusive_per_idea "
+                "ON deals(idea_id) WHERE is_exclusive = 1"
+            ))
+        logger.info("db: ensured ux_deals_exclusive_per_idea")
+    except Exception as e:
+        logger.exception("db: index create failed (ignored): %s", e)
+
     # 起動時 seed（Render用）
     if os.getenv("SEED_ON_STARTUP", "1") == "1":
         try:

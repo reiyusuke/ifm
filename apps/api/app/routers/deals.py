@@ -3,11 +3,22 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.db.session import get_db
 from app.models.models import Deal, Idea, User
+
+def _exclusive_already_taken(db, idea_id: int) -> bool:
+    # is_exclusive=True のDealが既に存在するか
+    from app.models.models import Deal
+    return (
+        db.query(Deal)
+        .filter(Deal.idea_id == idea_id, Deal.is_exclusive == True)  # noqa: E712
+        .first()
+        is not None
+    )
 
 router = APIRouter(prefix="/deals", tags=["deals"])
 
@@ -69,6 +80,9 @@ def create_or_update_deal(
 
     # New purchase
     if not deal:
+        # Exclusive is one-per-idea (someone else may already own it)
+        if bool(body.is_exclusive) and _exclusive_already_taken(db, body.idea_id):
+            raise HTTPException(status_code=409, detail="exclusive already taken")
         deal = Deal(
             buyer_id=current_user.id,
             idea_id=body.idea_id,
@@ -82,7 +96,11 @@ def create_or_update_deal(
                 pass
 
         db.add(deal)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="exclusive already taken")
         return {"ok": True, "upgraded": False}
 
     # Existing purchase
@@ -94,7 +112,11 @@ def create_or_update_deal(
     if (not deal.is_exclusive) and body.is_exclusive:
         deal.is_exclusive = True
         deal.amount = amount
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="exclusive already taken")
         return {"ok": True, "upgraded": True}
 
     # Same tier re-purchase
