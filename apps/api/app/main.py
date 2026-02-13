@@ -14,6 +14,7 @@ from app.routers.auth import router as auth_router
 from app.routers.deals import router as deals_router
 from app.routers.resale import router as resale_router
 from app.routers.ideas import router as ideas_router
+from app.routers import resale
 
 try:
     from app.routers.me import router as me_router
@@ -162,3 +163,4 @@ if me_router is not None:
 
 if admin_router is not None:
     app.include_router(admin_router)
+app.include_router(resale.router)
