@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.db.session import get_db
-from app.models.models import Idea, Deal, User
+from app.models.models import Deal, Idea, User
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -21,10 +21,9 @@ def recommended(
     Recommended ideas.
 
     - default: exclude owned ideas
-    - include_owned=true: include owned ideas and mark them is_owned=true
+    - include_owned=true: include owned ideas and mark them already_owned=true
     - order: total_score desc
     """
-    # Deals of this buyer (subquery)
     owned_subq = (
         select(Deal.idea_id.label("idea_id"), Deal.is_exclusive.label("owned_is_exclusive"))
         .where(Deal.buyer_id == current_user.id)
@@ -38,22 +37,24 @@ def recommended(
     )
 
     if not include_owned:
-        # exclude owned
         stmt = stmt.where(owned_subq.c.idea_id.is_(None))
 
     rows = db.execute(stmt).all()
 
     out = []
     for idea, owned_is_exclusive in rows:
-        is_owned = owned_is_exclusive is not None
+        already_owned = owned_is_exclusive is not None
         out.append(
             {
                 "id": int(idea.id),
                 "title": getattr(idea, "title", None),
                 "total_score": int(getattr(idea, "total_score", 0) or 0),
                 "exclusive_option_price": getattr(idea, "exclusive_option_price", None),
-                "is_owned": bool(is_owned),
-                "owned_is_exclusive": bool(owned_is_exclusive) if is_owned else False,
+                # --- test expected keys ---
+                "already_owned": bool(already_owned),
+                "owned_is_exclusive": bool(owned_is_exclusive) if already_owned else False,
+                # --- backward compatible (harmless) ---
+                "is_owned": bool(already_owned),
             }
         )
 
