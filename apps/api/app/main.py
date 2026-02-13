@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from app.db.session import engine
 from app.models.models import Base
 
@@ -6,6 +7,7 @@ from app.routers.auth import router as auth_router
 from app.routers.ideas import router as ideas_router
 from app.routers.deals import router as deals_router
 
+# optional routers
 try:
     from app.routers.me import router as me_router
 except Exception:
@@ -20,9 +22,9 @@ except Exception:
 app = FastAPI(title="ifm API")
 
 
-# 🔥 ここが重要（Render用）
 @app.on_event("startup")
 def on_startup():
+    # Render / SQLite: create tables if they don't exist
     Base.metadata.create_all(bind=engine)
 
 
