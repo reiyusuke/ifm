@@ -8,18 +8,36 @@ from pathlib import Path
 from sqlalchemy import select, create_engine
 from sqlalchemy.orm import Session
 
+
 # --- ensure "import app" works no matter where it is executed ---
 API_ROOT = Path(__file__).resolve().parents[1]  # apps/api
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-# --- import Base & models so metadata includes all tables ---
-from app.db.base import Base  # noqa: E402
-import app.models.models  # noqa: F401,E402  (important: register models)
-from app.models.models import User  # noqa: E402
-from app.models.enums import UserRole  # noqa: E402
 
-# --- password hash function: use the same function as the app uses for verification ---
+# --- IMPORTANT ---
+# Use the SAME Base / User model module that the app uses.
+# app/routers/auth.py imports User from app.models.models
+import app.models.models as models  # noqa: E402
+
+User = models.User  # type: ignore[attr-defined]
+Base = getattr(models, "Base", None)
+
+if Base is None:
+    # fallback: if your project defines Base in app.db.base
+    from app.db.base import Base  # type: ignore  # noqa: E402
+
+
+# role enum (project-specific)
+try:
+    from app.models.enums import UserRole  # type: ignore  # noqa: E402
+except Exception:
+    class UserRole:  # type: ignore
+        BUYER = "BUYER"
+        SELLER = "SELLER"
+
+
+# password hash function (must match verify_password path)
 HASH_FN = None
 HASH_FN_NAME = "unknown"
 try:
@@ -42,20 +60,21 @@ BUYER_PASS = os.getenv("E2E_BUYER_PASS", "buyerpass")
 SELLER_EMAIL = os.getenv("E2E_SELLER_EMAIL", "realseller@ifm.com").strip().lower()
 SELLER_PASS = os.getenv("E2E_SELLER_PASS", "sellerpass")
 
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///./app_test.db")
 
-
-def ensure_user(db: Session, email: str, plain_password: str, role_value: str) -> None:
-    email = email.strip().lower()
+def ensure_user(db: Session, email: str, password: str, role_value: str) -> None:
     u = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if u:
+        u.role = role_value
+        u.status = getattr(u, "status", None) or "ACTIVE"
+        if not getattr(u, "password_hash", None):
+            u.password_hash = HASH_FN(password)  # type: ignore[misc]
+        db.commit()
         return
 
-    pw_hash = HASH_FN(plain_password)
     db.add(
         User(
             email=email,
-            password_hash=pw_hash,
+            password_hash=HASH_FN(password),  # type: ignore[misc]
             role=role_value,
             status="ACTIVE",
         )
@@ -64,21 +83,24 @@ def ensure_user(db: Session, email: str, plain_password: str, role_value: str) -
 
 
 def main() -> None:
-    # Create engine FROM DATABASE_URL explicitly (prevents "seeded different DB" issues)
-    engine = create_engine(DB_URL, future=True)
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./app_test.db")
+    engine = create_engine(
+        db_url,
+        connect_args={"check_same_thread": False} if db_url.startswith("sqlite") else {},
+    )
 
-    # Create schema
+    # Ensure metadata has ALL models registered.
     Base.metadata.create_all(bind=engine)
 
-    # Seed users
     with Session(engine) as db:
-        ensure_user(db, BUYER_EMAIL, BUYER_PASS, UserRole.BUYER.value)
-        ensure_user(db, SELLER_EMAIL, SELLER_PASS, UserRole.SELLER.value)
+        ensure_user(db, BUYER_EMAIL, BUYER_PASS, getattr(UserRole, "BUYER", "BUYER"))
+        ensure_user(db, SELLER_EMAIL, SELLER_PASS, getattr(UserRole, "SELLER", "SELLER"))
 
         buyer = db.execute(select(User).where(User.email == BUYER_EMAIL)).scalar_one_or_none()
         seller = db.execute(select(User).where(User.email == SELLER_EMAIL)).scalar_one_or_none()
+
         print(f"USING_HASH_FN = {HASH_FN_NAME}")
-        print(f"DB_URL = {DB_URL}")
+        print(f"DATABASE_URL = {db_url}")
         print(f"SEEDED buyer={bool(buyer)} seller={bool(seller)}")
 
     print("OK: schema created & users seeded")
