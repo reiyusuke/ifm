@@ -1,69 +1,58 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
-# -----------------------
-# Password hashing
-# -----------------------
-try:
-    from passlib.context import CryptContext  # type: ignore
+import jwt
+from passlib.context import CryptContext
 
-    _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Single source of truth for JWT settings
+SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "dev-secret-dev-secret-dev-secret-devsecret"
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
 
-    def get_password_hash(password: str) -> str:
-        return _pwd_context.hash(password)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    def verify_password(plain_password: str, password_hash: str) -> bool:
-        try:
-            return _pwd_context.verify(plain_password, password_hash)
-        except Exception:
-            return False
 
-except Exception:
-    # Fallback (dev only): accept plain / "plain$xxx"
-    def get_password_hash(password: str) -> str:
-        return "plain$" + password
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
 
-    def verify_password(plain_password: str, password_hash: str) -> bool:
-        return password_hash == plain_password or password_hash == ("plain$" + plain_password)
 
-# -----------------------
-# JWT
-# -----------------------
-def _jwt_encode(payload: dict[str, Any], secret: str, algorithm: str) -> str:
-    try:
-        from jose import jwt  # type: ignore
-        return jwt.encode(payload, secret, algorithm=algorithm)
-    except Exception:
-        import jwt  # type: ignore
-        return jwt.encode(payload, secret, algorithm=algorithm)
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    if not password_hash:
+        return False
+    return pwd_context.verify(plain_password, password_hash)
 
-def _jwt_decode(token: str, secret: str, algorithms: list[str]) -> dict[str, Any]:
-    try:
-        from jose import jwt  # type: ignore
-        return jwt.decode(token, secret, algorithms=algorithms)
-    except Exception:
-        import jwt  # type: ignore
-        return jwt.decode(token, secret, algorithms=algorithms)
 
 def create_access_token(
     *,
     sub: str,
     role: str,
-    secret_key: str,
-    algorithm: str,
-    expires_minutes: int = 60 * 24,
+    secret_key: str = SECRET_KEY,
+    algorithm: str = ALGORITHM,
+    expires_minutes: int = ACCESS_TOKEN_MINUTES,
+    extra_claims: Optional[Dict[str, Any]] = None,
 ) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=expires_minutes)
-    payload = {"sub": sub, "role": role, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
-    return _jwt_encode(payload, secret_key, algorithm)
+
+    payload: Dict[str, Any] = {
+        "sub": sub,
+        "role": role,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+
+    return jwt.encode(payload, secret_key, algorithm=algorithm)
+
 
 def decode_access_token(
     token: str,
     *,
-    secret_key: str,
-    algorithm: str,
-) -> dict[str, Any]:
-    return _jwt_decode(token, secret_key, [algorithm])
+    secret_key: str = SECRET_KEY,
+    algorithm: str = ALGORITHM,
+) -> Dict[str, Any]:
+    return jwt.decode(token, secret_key, algorithms=[algorithm])
