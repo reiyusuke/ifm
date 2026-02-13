@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -8,15 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.models import User
-from app.security import create_access_token, decode_access_token, verify_password
+from app.security import (
+    ACCESS_TOKEN_MINUTES,
+    ALGORITHM,
+    SECRET_KEY,
+    create_access_token,
+    decode_access_token,
+    verify_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-SECRET_KEY = os.getenv("JWT_SECRET", os.getenv("SECRET_KEY", "dev-secret"))
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
 
 
 # pydantic schema は既存を使う前提（なければ最低限の型で通す）
@@ -52,7 +54,10 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer"}
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
     try:
         payload = decode_access_token(token, secret_key=SECRET_KEY, algorithm=ALGORITHM)
     except Exception:
