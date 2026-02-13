@@ -22,3 +22,4 @@ __all__ = [
     "Deal",
     "DealStatus",
 ]
+from app.models.resale_listing import ResaleListing  # noqa: F401
