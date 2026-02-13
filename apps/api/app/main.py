@@ -1,28 +1,30 @@
+from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.db.session import Base, engine
-from app import models  # モデルを読み込まないと create_all が効かない
+from app.db.session import engine
+from app.models.models import Base
 
+# Routers
 from app.routers.auth import router as auth_router
 from app.routers.ideas import router as ideas_router
 from app.routers.deals import router as deals_router
-from app.routers.me import router as me_router
-from app.routers.admin import router as admin_router
+
+try:
+    from app.routers.me import router as me_router  # type: ignore
+except Exception:
+    me_router = None  # type: ignore
+
+try:
+    from app.routers.admin import router as admin_router  # type: ignore
+except Exception:
+    admin_router = None  # type: ignore
+
 
 app = FastAPI()
 
-# -----------------------------------------------------------------------------
-# DB 初期化（テスト用）
-# -----------------------------------------------------------------------------
-@app.on_event("startup")
-def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
 
-# -----------------------------------------------------------------------------
-# CORS
-# -----------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,19 +33,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------------------------------------------------------
-# Health
-# -----------------------------------------------------------------------------
+
+@app.on_event("startup")
+def _startup() -> None:
+    # Renderなど新規環境でテーブルが無い問題を防ぐ
+    Base.metadata.create_all(bind=engine)
+
+
 @app.get("/health")
-def health():
+def health() -> dict:
     return {"ok": True}
 
-# -----------------------------------------------------------------------------
-# Routers
-# -----------------------------------------------------------------------------
+
 app.include_router(auth_router)
 app.include_router(ideas_router)
 app.include_router(deals_router)
-app.include_router(me_router)
-app.include_router(admin_router)
 
+if me_router is not None:
+    app.include_router(me_router)
+
+if admin_router is not None:
+    app.include_router(admin_router)
