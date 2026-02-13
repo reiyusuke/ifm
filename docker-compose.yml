@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16
+    container_name: ifm-db
+    environment:
+      POSTGRES_DB: ifm
+      POSTGRES_USER: ifm
+      POSTGRES_PASSWORD: ifm
+    ports:
+      - "5433:5432"
+    volumes:
+      - ifm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ifm -d ifm"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  ifm_pgdata:
