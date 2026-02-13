@@ -1,61 +1,72 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, desc
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.db.session import get_db
-from app.models.models import Deal, Idea, User
+from app.models.models import Idea, Deal, User
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
 
 @router.get("/recommended")
 def recommended(
-    include_owned: bool = Query(False, description="include ideas already owned by current user"),
+    include_owned: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Recommended ideas.
-
-    - default: exclude owned ideas
-    - include_owned=true: include owned ideas and mark them already_owned=true
-    - order: total_score desc
-    """
-    owned_subq = (
-        select(Deal.idea_id.label("idea_id"), Deal.is_exclusive.label("owned_is_exclusive"))
-        .where(Deal.buyer_id == current_user.id)
-        .subquery()
+    ideas = (
+        db.execute(
+            select(Idea).where(Idea.status == "SUBMITTED")
+        )
+        .scalars()
+        .all()
     )
 
-    stmt = (
-        select(Idea, owned_subq.c.owned_is_exclusive)
-        .outerjoin(owned_subq, owned_subq.c.idea_id == Idea.id)
-        .order_by(desc(Idea.total_score))
-    )
+    result = []
 
-    if not include_owned:
-        stmt = stmt.where(owned_subq.c.idea_id.is_(None))
+    for idea in ideas:
+        deal = (
+            db.execute(
+                select(Deal).where(
+                    Deal.buyer_id == current_user.id,
+                    Deal.idea_id == idea.id,
+                )
+            )
+            .scalars()
+            .first()
+        )
 
-    rows = db.execute(stmt).all()
+        is_owned = deal is not None
+        owned_is_exclusive = bool(deal.is_exclusive) if deal else False
 
-    out = []
-    for idea, owned_is_exclusive in rows:
-        already_owned = owned_is_exclusive is not None
-        out.append(
+        # 🔥 exclusive が誰かに取られているか
+        exclusive_taken = (
+            db.query(Deal)
+            .filter(Deal.idea_id == idea.id, Deal.is_exclusive == True)  # noqa
+            .first()
+            is not None
+        )
+
+        if not include_owned and is_owned:
+            continue
+
+        result.append(
             {
-                "id": int(idea.id),
-                "title": getattr(idea, "title", None),
-                "total_score": int(getattr(idea, "total_score", 0) or 0),
-                "exclusive_option_price": getattr(idea, "exclusive_option_price", None),
-                # --- test expected keys ---
-                "already_owned": bool(already_owned),
-                "owned_is_exclusive": bool(owned_is_exclusive) if already_owned else False,
-                # --- backward compatible (harmless) ---
-                "is_owned": bool(already_owned),
+                "id": idea.id,
+                "title": idea.title,
+                "total_score": idea.total_score,
+                "exclusive_option_price": idea.exclusive_option_price,
+                "already_owned": is_owned,
+                "owned_is_exclusive": owned_is_exclusive,
+                "is_owned": is_owned,
+                "exclusive_taken": exclusive_taken,
             }
         )
 
-    return out
+    # score降順
+    result.sort(key=lambda x: x["total_score"], reverse=True)
+
+    return result
