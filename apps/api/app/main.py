@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
+
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
 
 from app.db.session import engine
-from app.models.models import Base, User, Idea
-
+from app.models.models import Base, Idea, User
 from app.security import get_password_hash
 
 from app.routers.auth import router as auth_router
-from app.routers.ideas import router as ideas_router
 from app.routers.deals import router as deals_router
+from app.routers.ideas import router as ideas_router
 
 try:
     from app.routers.me import router as me_router
@@ -46,7 +46,6 @@ def _ensure_demo_users(db: Session) -> tuple[User, User]:
         db.refresh(buyer)
         logger.info("seed: created buyer")
     else:
-        # 既存でも必ずハッシュを揃える（ここが重要）
         if getattr(buyer, "password_hash", None) != pw_hash:
             buyer.password_hash = pw_hash
             db.commit()
@@ -66,11 +65,12 @@ def _ensure_demo_users(db: Session) -> tuple[User, User]:
             db.commit()
             logger.info("seed: updated seller password_hash")
 
-    # status があるモデルなら ACTIVE に寄せる（安全に）
+    # user.status がある場合のみ触る（Enum不一致でも落とさない）
     for u in (buyer, seller):
         if hasattr(u, "status"):
             try:
                 if getattr(u, "status") is None:
+                    # ここは環境によって Enum が違う可能性があるので、失敗しても無視
                     u.status = "ACTIVE"
                     db.commit()
             except Exception:
@@ -82,6 +82,7 @@ def _ensure_demo_users(db: Session) -> tuple[User, User]:
 def _ensure_demo_ideas(db: Session, seller: User) -> None:
     """
     何も無ければ demo ideas を入れる（summary/body は NOT NULL 対策で必ず入れる）
+    Idea.status は Enum に合わせて SUBMITTED を使う（DRAFT/SUBMITTED/ARCHIVED）
     """
     if db.query(Idea).limit(1).first() is not None:
         logger.info("seed: ideas already exist -> skip")
@@ -97,7 +98,7 @@ def _ensure_demo_ideas(db: Session, seller: User) -> None:
             price=0,
             resale_allowed=False,
             exclusive_option_price=999,
-            status="ACTIVE",
+            status="SUBMITTED",
             total_score=90,
         ),
         Idea(
@@ -108,7 +109,7 @@ def _ensure_demo_ideas(db: Session, seller: User) -> None:
             price=0,
             resale_allowed=False,
             exclusive_option_price=None,
-            status="ACTIVE",
+            status="SUBMITTED",
             total_score=80,
         ),
     ]
@@ -127,7 +128,7 @@ def on_startup() -> None:
     if os.getenv("SEED_ON_STARTUP", "1") == "1":
         try:
             with Session(bind=engine) as db:
-                buyer, seller = _ensure_demo_users(db)
+                _buyer, seller = _ensure_demo_users(db)
                 _ensure_demo_ideas(db, seller)
         except Exception as e:
             logger.exception("startup seed failed (ignored): %s", e)
