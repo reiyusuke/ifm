@@ -7,10 +7,7 @@ from typing import Any, Dict, Optional
 import jwt
 from passlib.context import CryptContext
 
-# -----------------------------------------------------------------------------
-# Auth / JWT settings (single source of truth)
-# -----------------------------------------------------------------------------
-# Prefer JWT_SECRET, fallback SECRET_KEY, otherwise strong-ish dev default (>= 32 bytes).
+# Single source of truth for JWT settings
 SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "dev-secret-dev-secret-dev-secret-devsecret"
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
@@ -18,9 +15,6 @@ ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-# -----------------------------------------------------------------------------
-# Password hash
-# -----------------------------------------------------------------------------
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -31,9 +25,6 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     return pwd_context.verify(plain_password, password_hash)
 
 
-# -----------------------------------------------------------------------------
-# JWT helpers
-# -----------------------------------------------------------------------------
 def create_access_token(
     *,
     sub: str,
@@ -64,5 +55,4 @@ def decode_access_token(
     secret_key: str = SECRET_KEY,
     algorithm: str = ALGORITHM,
 ) -> Dict[str, Any]:
-    # PyJWT raises on invalid signature/exp/etc.
     return jwt.decode(token, secret_key, algorithms=[algorithm])
