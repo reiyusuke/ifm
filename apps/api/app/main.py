@@ -1,31 +1,37 @@
 from fastapi import FastAPI
+from sqlalchemy.orm import Session
 
-from app.db.session import engine
-from app.models.models import Base
-
+from app.db.session import engine, SessionLocal
+from app.models.models import Base, User
 from app.routers.auth import router as auth_router
 from app.routers.ideas import router as ideas_router
 from app.routers.deals import router as deals_router
+from app.security import get_password_hash
 
-# optional routers
-try:
-    from app.routers.me import router as me_router
-except Exception:
-    me_router = None
-
-try:
-    from app.routers.admin import router as admin_router
-except Exception:
-    admin_router = None
-
-
-app = FastAPI(title="ifm API")
+app = FastAPI()
 
 
 @app.on_event("startup")
 def on_startup():
-    # Render / SQLite: create tables if they don't exist
+    # Create tables
     Base.metadata.create_all(bind=engine)
+
+    # Seed a default buyer user if not exists
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == "buyer@example.com").first()
+        if not user:
+            db.add(
+                User(
+                    email="buyer@example.com",
+                    password_hash=get_password_hash("password"),
+                    role="BUYER",
+                    status="ACTIVE",
+                )
+            )
+            db.commit()
+    finally:
+        db.close()
 
 
 @app.get("/health")
@@ -36,9 +42,3 @@ def health():
 app.include_router(auth_router)
 app.include_router(ideas_router)
 app.include_router(deals_router)
-
-if me_router:
-    app.include_router(me_router)
-
-if admin_router:
-    app.include_router(admin_router)
