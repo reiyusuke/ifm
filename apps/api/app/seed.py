@@ -1,99 +1,78 @@
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.models import (
-    User,
-    Idea,
-    UserRole,
-    UserStatus,
-    IdeaStatus,
-)
+from app.db import engine
+from app.models.models import Base, User, Idea
 from app.security import hash_password
 
 
-def _get_user_by_email(db: Session, email: str) -> User | None:
-    return db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+def seed_all(db: Session) -> dict:
+    # 0) テーブル作成（重要）
+    Base.metadata.create_all(bind=engine)
 
-
-def seed_demo_users(db: Session) -> None:
-    demo = [
-        {"email": "buyer@example.com", "password": "password", "role": UserRole.BUYER},
-        {"email": "seller@example.com", "password": "password", "role": UserRole.SELLER},
-    ]
-
-    changed = False
-    for d in demo:
-        u = _get_user_by_email(db, d["email"])
-        if u is None:
-            u = User(
-                email=d["email"],
-                password_hash=hash_password(d["password"]),
-                role=d["role"],
-                status=UserStatus.ACTIVE,
-            )
-            db.add(u)
-            changed = True
-        else:
-            if not getattr(u, "password_hash", None):
-                u.password_hash = hash_password(d["password"])
-                changed = True
-            if getattr(u, "role", None) != d["role"]:
-                u.role = d["role"]
-                changed = True
-            if getattr(u, "status", None) != UserStatus.ACTIVE:
-                u.status = UserStatus.ACTIVE
-                changed = True
-
-    if changed:
+    # 1) users が空なら demo user を作る
+    if db.query(User).count() == 0:
+        seller = User(
+            email="seller@example.com",
+            password_hash=hash_password("password"),
+            role="SELLER",
+            status="ACTIVE",
+        )
+        buyer = User(
+            email="buyer@example.com",
+            password_hash=hash_password("password"),
+            role="BUYER",
+            status="ACTIVE",
+        )
+        db.add_all([seller, buyer])
         db.commit()
+        db.refresh(seller)
+        db.refresh(buyer)
 
-
-def seed_demo_ideas(db: Session) -> None:
-    # 既に1件でもあれば何もしない
-    existing = db.execute(select(Idea.id).limit(1)).scalar_one_or_none()
-    if existing is not None:
-        return
-
-    seller = _get_user_by_email(db, "seller@example.com")
+    # 2) seller を取得（無ければ作る）
+    seller = db.query(User).filter(User.email == "seller@example.com").first()
     if seller is None:
         seller = User(
             email="seller@example.com",
             password_hash=hash_password("password"),
-            role=UserRole.SELLER,
-            status=UserStatus.ACTIVE,
+            role="SELLER",
+            status="ACTIVE",
         )
         db.add(seller)
         db.commit()
         db.refresh(seller)
 
-    # ★ summary は NOT NULL。必ず文字列を入れる（body も保険で入れる）
-    demo = [
-        {
-            "title": "Demo Idea A",
-            "summary": "Demo summary A",
-            "body": "Demo body A",
-            "status": getattr(IdeaStatus.ACTIVE,'value','ACTIVE'),
-            "total_score": 90.0,
-            "exclusive_option_price": 999.0,
-            "seller_id": seller.id,
-        },
-        {
-            "title": "Demo Idea B",
-            "summary": "Demo summary B",
-            "body": "Demo body B",
-            "status": getattr(IdeaStatus.ACTIVE,'value','ACTIVE'),
-            "total_score": 80.0,
-            "exclusive_option_price": None,
-            "seller_id": seller.id,
-        },
-    ]
+    # 3) ideas が空なら demo ideas を入れる
+    if db.query(Idea).count() == 0:
+        a = Idea(
+            seller_id=seller.id,
+            title="Demo Idea A",
+            summary="Demo summary A",
+            body="Demo body A",
+            price=0.0,
+            resale_allowed=True,
+            exclusive_option_price=999.0,
+            status="ACTIVE",
+            total_score=90.0,
+        )
+        b = Idea(
+            seller_id=seller.id,
+            title="Demo Idea B",
+            summary="Demo summary B",
+            body="Demo body B",
+            price=0.0,
+            resale_allowed=True,
+            exclusive_option_price=None,
+            status="ACTIVE",
+            total_score=80.0,
+        )
+        db.add_all([a, b])
+        db.commit()
 
-    db.add_all([Idea(**d) for d in demo])
-    db.commit()
-
-
-def seed_all(db: Session) -> None:
-    seed_demo_users(db)
-    seed_demo_ideas(db)
+    # 返り値（任意）
+    return {
+        "users": db.query(User).count(),
+        "ideas_total": db.query(Idea).count(),
+        "ideas_active": db.query(Idea).filter(Idea.status == "ACTIVE").count(),
+    }
