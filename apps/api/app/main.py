@@ -84,4 +84,8 @@ app.include_router(resale.router)
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    import os
+    return {
+        "ok": True,
+        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
+    }
