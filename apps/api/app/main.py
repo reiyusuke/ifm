@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import Base, engine, SessionLocal
 
-# ★重要: create_all 前に「全モデル」をimportしてmetadataに載せる
+# create_all 前にモデルを import して metadata に載せる
 from app.models import models as _models  # noqa: F401
 from app.models import resale_listing as _resale_listing  # noqa: F401
 
@@ -18,16 +18,10 @@ app = FastAPI()
 
 
 def _ensure_sqlite_columns() -> None:
-    """
-    SQLite は create_all で既存テーブルにカラム追加できないので、
-    足りないカラムを起動時に ALTER TABLE で補う。
-    """
     url = str(engine.url)
     if not url.startswith("sqlite"):
         return
-
     with engine.begin() as conn:
-        # deals.amount が無ければ足す（NULL許容にして既存行を壊さない）
         cols = conn.execute(text("PRAGMA table_info(deals)")).fetchall()
         col_names = {r[1] for r in cols}
         if "amount" not in col_names:
@@ -50,9 +44,6 @@ def _sqlite_table_exists(name: str) -> bool:
 
 
 def _counts_same_conn() -> dict:
-    """
-    同一コネクション上で、ideasの件数を返す（0件問題の切り分け用）
-    """
     try:
         with engine.begin() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM ideas")).scalar() or 0
@@ -66,26 +57,21 @@ def _counts_same_conn() -> dict:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # 1) テーブル作成
     Base.metadata.create_all(bind=engine)
-
-    # 2) SQLiteの不足カラム補完
     _ensure_sqlite_columns()
 
-    # 3) seed（失敗しても落とさない。ログで追えるようにする）
     db: Session = SessionLocal()
     try:
         print("=== STARTUP: seeding begin ===")
         seed_all(db)
         print("=== STARTUP: seeding done ===")
     except Exception as e:
-        # 起動はさせる（Render FreeでSQLiteが飛ぶ等があるため）
         print(f"=== STARTUP: seed failed (ignored): {type(e).__name__}: {e} ===")
     finally:
         db.close()
 
 
-# ルーター登録
+# routers
 app.include_router(auth.router)
 app.include_router(ideas.router)
 app.include_router(deals.router)
@@ -94,10 +80,11 @@ app.include_router(resale.router)
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
+    }
 
-
-# ===== Debug endpoints (一旦だけ) =====
 
 @app.get("/_debug/dbinfo")
 def debug_dbinfo():
@@ -113,9 +100,6 @@ def debug_dbinfo():
 
 @app.post("/_debug/seed")
 def debug_seed():
-    """
-    手動seed。とりあえず開発用に使う。
-    """
     db: Session = SessionLocal()
     try:
         seed_all(db)
