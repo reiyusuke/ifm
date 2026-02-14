@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -19,15 +17,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _normalize_role(role: Optional[str]) -> Optional[str]:
-    if not role:
-        return role
-    # "UserRole.SELLER" -> "SELLER"
-    if "." in role:
-        role = role.split(".")[-1]
-    return role
 
 
 def get_current_user(
@@ -51,9 +40,5 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="not authenticated")
-
-    # role はここで正規化しておく（必要なら他でも参照）
-    user.role = getattr(user.role, "value", user.role)  # Enum -> value
-    _ = _normalize_role(str(payload.get("role") or ""))  # side-effectなし、検証用
 
     return user
