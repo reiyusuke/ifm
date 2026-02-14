@@ -1,84 +1,110 @@
 from __future__ import annotations
 
-from datetime import datetime
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.models.models import User, UserRole, Idea, IdeaStatus
+from app.models.models import (
+    User,
+    Idea,
+    UserRole,
+    UserStatus,
+    IdeaStatus,
+)
 from app.security import hash_password
 
 
+def _get_user_by_email(db: Session, email: str) -> User | None:
+    return db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+
+
 def seed_demo_users(db: Session) -> None:
-    # seller@example.com / buyer@example.com を必ず作る（いなければ作成、いれば修復）
-    seller = db.execute(select(User).where(User.email == "seller@example.com")).scalar_one_or_none()
-    if seller is None:
-        seller = User(
-            email="seller@example.com",
-            role=UserRole.SELLER,
-            password_hash=hash_password("password"),
-            created_at=datetime.utcnow(),
-        )
-        db.add(seller)
-    else:
-        # 既存でも password_hash が壊れてたら修復
-        seller.role = UserRole.SELLER
-        seller.password_hash = hash_password("password")
+    """
+    demoユーザーが無ければ作成。あれば最低限の項目を修復する。
+    """
+    demo = [
+        {
+            "email": "buyer@example.com",
+            "password": "password",
+            "role": UserRole.BUYER,
+        },
+        {
+            "email": "seller@example.com",
+            "password": "password",
+            "role": UserRole.SELLER,
+        },
+    ]
 
-    buyer = db.execute(select(User).where(User.email == "buyer@example.com")).scalar_one_or_none()
-    if buyer is None:
-        buyer = User(
-            email="buyer@example.com",
-            role=UserRole.BUYER,
-            password_hash=hash_password("password"),
-            created_at=datetime.utcnow(),
-        )
-        db.add(buyer)
-    else:
-        buyer.role = UserRole.BUYER
-        buyer.password_hash = hash_password("password")
+    changed = False
+    for d in demo:
+        u = _get_user_by_email(db, d["email"])
+        if u is None:
+            u = User(
+                email=d["email"],
+                password_hash=hash_password(d["password"]),
+                role=d["role"],
+                status=UserStatus.ACTIVE,
+            )
+            db.add(u)
+            changed = True
+        else:
+            # 既存でも壊れてたら最低限修復
+            if not getattr(u, "password_hash", None):
+                u.password_hash = hash_password(d["password"])
+                changed = True
+            if getattr(u, "role", None) != d["role"]:
+                u.role = d["role"]
+                changed = True
+            if getattr(u, "status", None) != UserStatus.ACTIVE:
+                u.status = UserStatus.ACTIVE
+                changed = True
 
-    db.flush()  # id を確定
+    if changed:
+        db.commit()
 
 
 def seed_demo_ideas(db: Session) -> None:
-    # seller を取得（なければ先に users seed が必要）
-    seller = db.execute(select(User).where(User.email == "seller@example.com")).scalar_one()
-
-    # Idea が 0 件ならデモ投入
-    total = db.execute(select(Idea)).scalars().first()
-    if total is not None:
+    """
+    demoアイデアが0件のときだけ投入。
+    ※ Idea モデルに存在しない key（例: description）は絶対に渡さない
+    """
+    existing = db.execute(select(Idea.id).limit(1)).scalar_one_or_none()
+    if existing is not None:
         return
 
+    seller = _get_user_by_email(db, "seller@example.com")
+    if seller is None:
+        # 念のため（通常ここには来ない）
+        seller = User(
+            email="seller@example.com",
+            password_hash=hash_password("password"),
+            role=UserRole.SELLER,
+            status=UserStatus.ACTIVE,
+        )
+        db.add(seller)
+        db.commit()
+        db.refresh(seller)
+
     demo = [
-        Idea(
-            title="Demo Idea A",
-            summary="Demo summary A",
-            description=None,
-            is_exclusive=False,
-            price=999.0,
-            status=IdeaStatus.ACTIVE,
-            total_score=90.0,
-            seller_id=seller.id,
-            created_at=datetime.utcnow(),
-        ),
-        Idea(
-            title="Demo Idea B",
-            summary="Demo summary B",
-            description=None,
-            is_exclusive=True,
-            price=1999.0,
-            status=IdeaStatus.ACTIVE,
-            total_score=80.0,
-            seller_id=seller.id,
-            created_at=datetime.utcnow(),
-        ),
+        {
+            "title": "Demo Idea A",
+            "status": IdeaStatus.ACTIVE,
+            "total_score": 90.0,
+            "exclusive_option_price": 999.0,
+            "seller_id": seller.id,
+        },
+        {
+            "title": "Demo Idea B",
+            "status": IdeaStatus.ACTIVE,
+            "total_score": 80.0,
+            "exclusive_option_price": None,
+            "seller_id": seller.id,
+        },
     ]
 
-    db.add_all(demo)
+    db.add_all([Idea(**d) for d in demo])
+    db.commit()
 
 
 def seed_all(db: Session) -> None:
-    # 失敗したら例外を投げて Render logs に出す（silent禁止）
     seed_demo_users(db)
     seed_demo_ideas(db)
-    db.commit()
