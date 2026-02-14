@@ -1,38 +1,21 @@
-from __future__ import annotations
+# （中略：既存importはそのまま）
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
-from app.db.session import get_db
-from app.models.models import User
-from app.security import verify_password, create_access_token
-
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
+# ログイン部分だけ修正版例
 @router.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    # 1) user lookup
-    user = db.query(User).filter(User.email == payload.email).first()
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=401, detail="invalid credentials")
 
-    # 2) password verify
-    if not verify_password(payload.password, getattr(user, "password_hash", None)):
+    if not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
-    # 3) issue token
-    # ★重要: sub= では呼ばない（既存実装差分で壊れるため）
     try:
-        token = create_access_token(data={"sub": str(user.id), "role": str(getattr(user, "role", ""))})
+        token = create_access_token(
+            user_id=user.id,
+            role=user.role.value,   # ★ FIX
+        )
     except Exception as e:
-        # Renderで原因が追えるように detail に出す（今あなたが見てるやつ）
-        raise HTTPException(status_code=500, detail=f"AUTH_LOGIN_FATAL: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"TOKEN_ERROR: {e}")
 
     return {"access_token": token, "token_type": "bearer"}
