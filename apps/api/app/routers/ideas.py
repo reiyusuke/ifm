@@ -101,7 +101,7 @@ def _idea_to_public_dict(i) -> dict[str, Any]:
     }
 
 # NOTE: 既存 /ideas/_debug/all が壊れてても、これで中身を確認できる
-@router.get("/ideas/_debug/all_json")
+@router.get("/_debug/all_json")
 def debug_all_json(db: Session = Depends(get_db)):
     ideas = db.query(Idea).order_by(Idea.id.asc()).limit(200).all()
     return [_idea_to_public_dict(i) for i in ideas]
