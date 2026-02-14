@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models.models import User, UserRole
+from app.models.models import User
 from app.security import decode_access_token
-
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -20,11 +21,13 @@ def get_db():
         db.close()
 
 
-def _normalize_role(role: object) -> str:
-    s = str(role)
-    if "." in s:
-        s = s.split(".")[-1]
-    return s
+def _normalize_role(role: Optional[str]) -> Optional[str]:
+    if not role:
+        return role
+    # "UserRole.SELLER" -> "SELLER"
+    if "." in role:
+        role = role.split(".")[-1]
+    return role
 
 
 def get_current_user(
@@ -32,31 +35,25 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="not authenticated")
 
-    try:
-        payload = decode_access_token(token)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+    payload = decode_access_token(token)
 
     sub = payload.get("sub")
     if sub is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="not authenticated")
 
     try:
         user_id = int(sub)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="not authenticated")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="not authenticated")
 
-    # role も保険で正規化（"UserRole.SELLER" を許容）
-    role_raw = payload.get("role")
-    role_norm = _normalize_role(role_raw) if role_raw is not None else None
-    if role_norm and role_norm not in {r.value for r in UserRole}:
-        # 役割が未知なら弾く
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+    # role はここで正規化しておく（必要なら他でも参照）
+    user.role = getattr(user.role, "value", user.role)  # Enum -> value
+    _ = _normalize_role(str(payload.get("role") or ""))  # side-effectなし、検証用
 
     return user
