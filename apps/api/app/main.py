@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 from fastapi import FastAPI
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import Base, engine, SessionLocal
@@ -20,13 +21,11 @@ app = FastAPI()
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # 1) テーブル作成
     Base.metadata.create_all(bind=engine)
 
-    # 2) seed（失敗したら落として Render logs に理由を出す）
     db: Session = SessionLocal()
     try:
-        seed_all(db)
+        seed_all(db)  # 失敗したら例外で落ちる想定
     finally:
         db.close()
 
@@ -44,3 +43,42 @@ def health():
         "utc": datetime.utcnow().isoformat(),
         "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
     }
+
+
+@app.get("/_debug/dbinfo")
+def dbinfo():
+    url = str(engine.url)
+
+    # deals/ideas の存在と件数を “同一接続” で確認
+    with engine.begin() as conn:
+        # sqlite の場合
+        if url.startswith("sqlite"):
+            ideas = conn.execute(text("SELECT COUNT(*) FROM ideas")).scalar_one() if _table_exists(conn, "ideas") else None
+            deals = conn.execute(text("SELECT COUNT(*) FROM deals")).scalar_one() if _table_exists(conn, "deals") else None
+        else:
+            # postgres 等でも同じSQLでOK（テーブル無ければ例外回避）
+            ideas = _safe_count(conn, "ideas")
+            deals = _safe_count(conn, "deals")
+
+    return {
+        "engine_url": url,
+        "cwd": os.getcwd(),
+        "files": sorted([f for f in os.listdir(".") if f.endswith(".db") or f.endswith(".sqlite")]),
+        "ideas_count_same_conn": ideas,
+        "deals_count_same_conn": deals,
+    }
+
+
+def _safe_count(conn, table: str):
+    try:
+        return conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+    except Exception:
+        return None
+
+
+def _table_exists(conn, name: str) -> bool:
+    try:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"), {"n": name}).fetchall()
+        return len(rows) > 0
+    except Exception:
+        return False
