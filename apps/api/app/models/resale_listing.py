@@ -1,4 +1,6 @@
 from __future__ import annotations
+from app.db.session import Base
+
 
 from sqlalchemy import Column, DateTime, Float, Integer, UniqueConstraint, func
 
@@ -9,9 +11,8 @@ except Exception:
     try:
         from app.db.base_class import Base  # type: ignore
     except Exception:
-        from sqlalchemy.orm import declarative_base
-        Base = declarative_base()  # 最悪の保険
 
+        Base = declarative_base()  # 最悪の保険
 
 class ResaleListing(Base):
     __tablename__ = "resale_listings"

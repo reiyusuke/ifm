@@ -1,35 +1,20 @@
+from __future__ import annotations
+
 from fastapi import FastAPI
-from sqlalchemy import text
 
-from app.db.session import engine
+from app.db.session import Base, engine
 
-# routers
-from app.routers import auth, ideas, deals, resale
+# 重要: これを import しないと Base にモデルが登録されず create_all でテーブルが作られない
+import app.models  # noqa: F401
+
+from app.routers import auth, deals, ideas, resale
 
 app = FastAPI()
 
-# --- ここでテーブルを確実に作る（Base経由が怪しいのでDDLで止血） ---
-def _ensure_resale_table() -> None:
-    ddl = """
-    CREATE TABLE IF NOT EXISTS resale_listings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      idea_id INTEGER NOT NULL,
-      seller_id INTEGER NOT NULL,
-      price REAL NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(idea_id)
-    );
-    """
-    with engine.begin() as conn:
-        conn.execute(text(ddl))
+# 起動時にテーブルを確実に作る（SQLiteでもRenderでも）
+Base.metadata.create_all(bind=engine)
 
-
-@app.on_event("startup")
-def _startup() -> None:
-    _ensure_resale_table()
-
-
-# --- routers ---
+# ルーター登録
 app.include_router(auth.router)
 app.include_router(ideas.router)
 app.include_router(deals.router)
