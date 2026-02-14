@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.db.session import get_db
 from app.models.models import Idea, IdeaStatus, User
@@ -105,3 +106,40 @@ def _idea_to_public_dict(i) -> dict[str, Any]:
 def debug_all_json(db: Session = Depends(get_db)):
     ideas = db.query(Idea).order_by(Idea.id.asc()).limit(200).all()
     return [_idea_to_public_dict(i) for i in ideas]
+
+
+@router.get("/ideas/_debug/recommended_trace")
+def debug_recommended_trace(include_owned: bool = True, db: Session = Depends(get_db)):
+    """
+    /ideas/recommended が 500 になる原因切り分け用（認証不要）。
+    """
+    try:
+        rows = db.execute(text(
+            "SELECT id, title, status, total_score, exclusive_option_price "
+            "FROM ideas ORDER BY total_score DESC"
+        )).fetchall()
+
+        def is_active(st: str) -> bool:
+            return st in ("ACTIVE", "IdeaStatus.ACTIVE")
+
+        items = []
+        for r in rows:
+            st = str(r[2])
+            if not is_active(st):
+                continue
+            items.append({
+                "id": r[0],
+                "title": r[1],
+                "status": st,
+                "total_score": float(r[3] or 0),
+                "exclusive_option_price": r[4],
+                "already_owned": False,
+                "owned_is_exclusive": False,
+                "is_owned": False,
+                "exclusive_taken": False,
+            })
+
+        return {"ok": True, "count": len(items), "items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RECOMMENDED_TRACE_ERROR: {type(e).__name__}: {e}")
+
