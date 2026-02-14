@@ -1,18 +1,18 @@
-from __future__ import annotations
-
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer
+from sqlalchemy import Integer, DateTime, ForeignKey, Boolean
+from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.session import Base
-
+from app.models.models import Base
 
 class ResaleListing(Base):
     __tablename__ = "resale_listings"
 
-    idea_id = Column(Integer, primary_key=True, index=True)
-    price = Column(Integer, nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"), index=True)
+    seller_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    price: Mapped[int] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
