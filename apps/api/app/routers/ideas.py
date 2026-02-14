@@ -108,7 +108,7 @@ def debug_all_json(db: Session = Depends(get_db)):
     return [_idea_to_public_dict(i) for i in ideas]
 
 
-@router.get("/ideas/_debug/recommended_trace")
+@router.get("/_debug/recommended_trace")
 def debug_recommended_trace(include_owned: bool = True, db: Session = Depends(get_db)):
     """
     /ideas/recommended が 500 になる原因切り分け用（認証不要）。
