@@ -18,20 +18,9 @@ def _get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def seed_demo_users(db: Session) -> None:
-    """
-    demoユーザーが無ければ作成。あれば最低限の項目を修復する。
-    """
     demo = [
-        {
-            "email": "buyer@example.com",
-            "password": "password",
-            "role": UserRole.BUYER,
-        },
-        {
-            "email": "seller@example.com",
-            "password": "password",
-            "role": UserRole.SELLER,
-        },
+        {"email": "buyer@example.com", "password": "password", "role": UserRole.BUYER},
+        {"email": "seller@example.com", "password": "password", "role": UserRole.SELLER},
     ]
 
     changed = False
@@ -47,7 +36,6 @@ def seed_demo_users(db: Session) -> None:
             db.add(u)
             changed = True
         else:
-            # 既存でも壊れてたら最低限修復
             if not getattr(u, "password_hash", None):
                 u.password_hash = hash_password(d["password"])
                 changed = True
@@ -63,17 +51,13 @@ def seed_demo_users(db: Session) -> None:
 
 
 def seed_demo_ideas(db: Session) -> None:
-    """
-    demoアイデアが0件のときだけ投入。
-    ※ Idea モデルに存在しない key（例: description）は絶対に渡さない
-    """
+    # 既に1件でもあれば何もしない
     existing = db.execute(select(Idea.id).limit(1)).scalar_one_or_none()
     if existing is not None:
         return
 
     seller = _get_user_by_email(db, "seller@example.com")
     if seller is None:
-        # 念のため（通常ここには来ない）
         seller = User(
             email="seller@example.com",
             password_hash=hash_password("password"),
@@ -84,9 +68,12 @@ def seed_demo_ideas(db: Session) -> None:
         db.commit()
         db.refresh(seller)
 
+    # ★ summary は NOT NULL。必ず文字列を入れる（body も保険で入れる）
     demo = [
         {
             "title": "Demo Idea A",
+            "summary": "Demo summary A",
+            "body": "Demo body A",
             "status": IdeaStatus.ACTIVE,
             "total_score": 90.0,
             "exclusive_option_price": 999.0,
@@ -94,6 +81,8 @@ def seed_demo_ideas(db: Session) -> None:
         },
         {
             "title": "Demo Idea B",
+            "summary": "Demo summary B",
+            "body": "Demo body B",
             "status": IdeaStatus.ACTIVE,
             "total_score": 80.0,
             "exclusive_option_price": None,
