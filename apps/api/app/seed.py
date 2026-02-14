@@ -28,7 +28,7 @@ def seed_demo_users(db: Session) -> None:
             )
             db.add(u)
         else:
-            # 既存の壊れた hash を強制修復（平文や未知形式→bcryptへ）
+            # 既存の壊れた hash を強制修復（毎回上書き）
             u.role = role
             u.status = UserStatus.ACTIVE
             u.password_hash = hashed
@@ -41,9 +41,7 @@ def seed_demo_ideas(db: Session) -> None:
     if seller is None:
         return
 
-    # すでに入ってたら何もしない（必要なら条件変えてOK）
-    exists = db.query(Idea).count()
-    if exists:
+    if db.query(Idea).count():
         return
 
     demo = [
