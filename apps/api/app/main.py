@@ -1,50 +1,43 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.db.session import Base, engine
+from app.db.session import Base, engine, SessionLocal
 
-# ★ 重要：create_all の前にモデルを必ず import する
-# これが無いと Base.metadata にテーブルが登録されず、create_all しても作られない
-import app.models.models  # noqa: F401
-import app.models.resale_listing  # noqa: F401
+# ルーター
+from app.routers import auth, ideas, deals, resale
 
-from app.routers import auth, ideas, deals, resale  # noqa: E402
+# ★重要: create_all の前に「モデル定義」を必ず import して Base に登録させる
+# (import だけでOK。参照しなくても良い)
+from app.models import models  # noqa: F401
+from app.models import resale_listing  # noqa: F401
 
+from app.seed import seed_all
 
 app = FastAPI()
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # 1) DB URL をログに出す（Renderで「どのDB」を見てるか確定させる）
-    db_url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
-    print(f"[startup] DATABASE_URL={db_url}")
-
-    # 2) create_all 実行
+    # テーブル生成
     Base.metadata.create_all(bind=engine)
-    print("[startup] Base.metadata.create_all done")
 
-    # 3) 実際に “そのDB” に存在するテーブル一覧をログに出す（最重要）
+    # 起動確認ログ（Renderで見える）
+    with engine.begin() as c:
+        tables = c.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        ).fetchall()
+        print("DB tables:", [t[0] for t in tables])
+
+    # demo seed
+    db = SessionLocal()
     try:
-        with engine.connect() as conn:
-            if db_url.startswith("sqlite"):
-                rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).fetchall()
-                print("[startup] sqlite tables:", [r[0] for r in rows])
-            else:
-                # postgres想定：public schema
-                rows = conn.execute(
-                    text("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
-                ).fetchall()
-                print("[startup] postgres tables:", [r[0] for r in rows])
-    except Exception as e:
-        print("[startup] table list failed:", repr(e))
+        seed_all(db)
+    finally:
+        db.close()
 
 
-# ルーター登録
 app.include_router(auth.router)
 app.include_router(ideas.router)
 app.include_router(deals.router)
