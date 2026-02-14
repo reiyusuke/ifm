@@ -73,3 +73,35 @@ def debug_all(
         }
         for i in rows
     ]
+
+# --- debug helpers (safe JSON) ---
+from datetime import datetime
+from typing import Any
+
+def _idea_to_public_dict(i) -> dict[str, Any]:
+    # SQLAlchemy model -> JSON-serializable primitives
+    def dt(x):
+        if isinstance(x, datetime):
+            return x.isoformat()
+        return x
+
+    return {
+        "id": getattr(i, "id", None),
+        "seller_id": getattr(i, "seller_id", None),
+        "title": getattr(i, "title", None),
+        "summary": getattr(i, "summary", None),
+        "body": getattr(i, "body", None),
+        "price": getattr(i, "price", None),
+        "resale_allowed": getattr(i, "resale_allowed", None),
+        "exclusive_option_price": getattr(i, "exclusive_option_price", None),
+        "status": str(getattr(i, "status", None)),
+        "total_score": getattr(i, "total_score", None),
+        "created_at": dt(getattr(i, "created_at", None)),
+        "updated_at": dt(getattr(i, "updated_at", None)),
+    }
+
+# NOTE: 既存 /ideas/_debug/all が壊れてても、これで中身を確認できる
+@router.get("/ideas/_debug/all_json")
+def debug_all_json(db: Session = Depends(get_db)):
+    ideas = db.query(Idea).order_by(Idea.id.asc()).limit(200).all()
+    return [_idea_to_public_dict(i) for i in ideas]
