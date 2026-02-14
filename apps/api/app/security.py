@@ -2,30 +2,25 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import jwt
-from fastapi import HTTPException
 from jwt import PyJWTError
 from passlib.context import CryptContext
-from passlib.exc import UnknownHashError
 
-
-# ============
-# JWT settings
-# ============
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+# ---- JWT settings ----
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
 
+# ---- Password hashing ----
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256"],  # これに統一（bcrypt絡み事故回避）
+    deprecated="auto",
+)
 
-# =====================
-# Password hashing
-# =====================
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
-
-def get_password_hash(password: str) -> str:
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
@@ -34,68 +29,56 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
         return False
     try:
         return pwd_context.verify(plain_password, password_hash)
-    except UnknownHashError:
-        # DB に平文/未知形式が入ってても 500 にしない
+    except Exception:
+        # 壊れたhash等でも500にしない
         return False
 
 
-# =====================
-# Helpers
-# =====================
 def _normalize_role(role: Any) -> str:
     """
-    role を必ず "SELLER"/"BUYER"/"ADMIN" 形式に正規化する。
-    - Enum -> .value があればそれを使う
-    - "UserRole.SELLER" のような文字列 -> "SELLER" に落とす
+    roleがEnumでもstrでも必ず "SELLER" / "BUYER" / "ADMIN" の形にする
     """
     if role is None:
         return ""
+    # Enumなら .value
+    if hasattr(role, "value"):
+        role = role.value
+    role_str = str(role)
 
-    # Enumっぽい場合（.value を持つ）
-    val = getattr(role, "value", None)
-    if isinstance(val, str):
-        role = val
+    # "UserRole.SELLER" みたいなのを "SELLER" に寄せる
+    if "." in role_str:
+        role_str = role_str.split(".")[-1]
 
-    # 文字列化
-    s = str(role)
-
-    # "UserRole.SELLER" / "Role.SELLER" などを "SELLER" にする
-    if "." in s:
-        s = s.split(".")[-1]
-
-    return s
+    return role_str
 
 
-# =====================
-# JWT create / decode
-# =====================
 def create_access_token(
-    *,
-    user_id: Any,
+    subject: str,
     role: Any,
-    expires_minutes: Optional[int] = None,
+    expires_delta: Optional[timedelta] = None,
 ) -> str:
-    exp_mins = ACCESS_TOKEN_EXPIRE_MINUTES if expires_minutes is None else int(expires_minutes)
     now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
 
     payload: Dict[str, Any] = {
-        "sub": str(user_id),
+        "sub": str(subject),
         "role": _normalize_role(role),
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=exp_mins)).timestamp()),
+        "exp": int(expire.timestamp()),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str) -> Tuple[str, str]:
     """
-    失敗したらHTTPException(401)を投げる。roleも正規化して返す。
+    Returns (user_id, role). Raises if invalid.
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except PyJWTError as e:
-        raise HTTPException(status_code=401, detail=f"invalid token: {type(e).__name__}")
-
-    # 正規化
-    payload["role"] = _normalize_role(payload.get("role"))
-    return payload
+        sub = payload.get("sub")
+        role = payload.get("role")
+        if not sub:
+            raise ValueError("missing sub")
+        return str(sub), str(role or "")
+    except (PyJWTError, ValueError) as e:
+        raise e
