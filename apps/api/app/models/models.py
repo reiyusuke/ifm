@@ -13,14 +13,14 @@ from sqlalchemy import (
     Enum,
 )
 from sqlalchemy.orm import (
-    DeclarativeBase,
     Mapped,
     mapped_column,
     relationship,
 )
 
-class Base(DeclarativeBase):
-    pass
+# ★ ここが最重要：sessionのBaseを使う
+from app.db.session import Base
+
 
 # =========================
 # Enums
@@ -31,18 +31,22 @@ class UserRole(str, enum.Enum):
     SELLER = "SELLER"
     ADMIN = "ADMIN"
 
+
 class UserStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
+
 
 class IdeaStatus(str, enum.Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     ARCHIVED = "ARCHIVED"
 
+
 class DealStatus(str, enum.Enum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
+
 
 # =========================
 # Models
@@ -52,10 +56,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String, unique=True)
     password_hash: Mapped[str] = mapped_column(String)
+
     role: Mapped[UserRole] = mapped_column(Enum(UserRole))
-    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus))
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -66,12 +72,17 @@ class Idea(Base):
     title: Mapped[str] = mapped_column(String)
     summary: Mapped[str] = mapped_column(String)
     body: Mapped[str] = mapped_column(String)
-    price: Mapped[float] = mapped_column(Float)
-    resale_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
-    exclusive_option_price: Mapped[float | None] = mapped_column(Float, nullable=True)
-    status: Mapped[IdeaStatus] = mapped_column(Enum(IdeaStatus))
-    total_score: Mapped[int] = mapped_column(Integer)
+
     seller_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+    price: Mapped[float] = mapped_column(Float)
+    exclusive_option_price: Mapped[float] = mapped_column(Float, nullable=True)
+
+    resale_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    status: Mapped[IdeaStatus] = mapped_column(Enum(IdeaStatus))
+    total_score: Mapped[int] = mapped_column(Integer, default=0)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -81,5 +92,7 @@ class Deal(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id"))
     buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
     is_exclusive: Mapped[bool] = mapped_column(Boolean, default=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
